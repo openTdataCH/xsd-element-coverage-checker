@@ -1,4 +1,6 @@
 # xsd-element-coverage-checker
+**Important:** for NeTEx which is the reference use case we had the code runs for 30-40 minutes.
+
 Java code to check how many elements of an XSD-namespace are covered by one or many XML example files
 
 It's a gradle project that contains only one runnable .java file
