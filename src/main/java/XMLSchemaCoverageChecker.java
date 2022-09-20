@@ -24,6 +24,7 @@ import org.apache.ws.commons.schema.XmlSchema;
 import org.apache.ws.commons.schema.XmlSchemaCollection;
 import org.apache.ws.commons.schema.XmlSchemaElement;
 import org.apache.ws.commons.schema.XmlSchemaInclude;
+import org.apache.ws.commons.schema.XmlSchemaImport;
 import org.apache.ws.commons.schema.XmlSchemaObject;
 
 /**
@@ -41,6 +42,15 @@ import org.apache.ws.commons.schema.XmlSchemaObject;
  * and compare each element within against the xsd elements and if they match add the file's path to the set 3. we print it all into a xsd file with columns: xsd file; xsd element (N/A if the xsd had
  * no element (e.g., only referecnces)); set of files using the element (N/A if the previous one was N/A)
  */
+ 
+ /*
+ TODO:
+ - Command line parameters
+ - Checking if parameters can be used
+ - Imports also not only includes
+ - Namespaces to be handled
+
+ */
 public final class XMLSchemaCoverageChecker {
 
     // Implicit Bitmap for elements parsed out of the various schema, <file, <element, list of usages>>
@@ -48,7 +58,8 @@ public final class XMLSchemaCoverageChecker {
 
     private static List<String> ignoredFiles = new ArrayList<>();
 
-    // Starting point (file) for parsing the schema and its relative (base) path in the xsd folder
+    /*
+	// Starting point (file) for parsing the schema and its relative (base) path in the xsd folder
     private static String xsdMainFileName = "NeTEx_publication.xsd";
     // Insert the path to the main xsd folder
     private static String xsdMain = "C:/Users/.../Desktop/dev_analysis/NeTEx/xsd/";
@@ -56,13 +67,77 @@ public final class XMLSchemaCoverageChecker {
     private static String xmlMain = "C:/Users/.../Desktop/dev_analysis/NeTEx/examples/";
     // Insert the path to the output csv file
     private static String outputFilePath = "C:/Users/.../Desktop/dev_analysis/homework/xsdCoverage.csv";
-
+	*/
+	
     private static boolean print = false;
 
     private XMLSchemaCoverageChecker() {
     }
 
     public static void main(String[] args) throws URISyntaxException, IOException, ConfigurationException {
+		// Extract command line parameters
+		int x=0;
+		String xsdMainFileName="";
+		String xsdMain="";
+		String xmlMain="";
+		String outputFilePath="";
+		while (x<args.length){
+			if (args[x].equals("--help")){
+				System.out.println("XMLSchemaCoverageChecker\n"); 
+				System.out.println("========================\n"); 
+				System.out.println("Checks, which elements (not abstract) in an XSD are not covered by XML examples\n"); 
+				System.out.println("see also: https://github.com/openTdataCH/xsd-element-coverage-checker\n"); 
+				System.out.println("\n"); 
+				System.out.println("\n"); 
+
+				System.out.println("Parameters:\n"); 
+				System.out.println("--help this help\n"); 
+				System.out.println("--main main xsd file\n"); 
+				System.out.println("--xsd Schemafolder\n"); 
+				System.out.println("--xml XML example folder\n"); 
+				System.out.println("--out output file (CSV)\n"); 
+				System.exit(0);
+				
+			}
+			else if (args[x].equals("--main")){
+				if (x+1>=args.length){
+					System.out.println("no main file defined/n");
+					System.exit(1);
+				}
+				xsdMainFileName=args[x+1];
+				x=x+1;
+			}
+			else if (args[x].equals("--xsd")){
+				if (x+1>=args.length){
+					System.out.println("no xsd directory defined/n");
+					System.exit(1);
+				}
+				xsdMain=args[x+1];
+				x=x+1;
+			}
+			else if (args[x].equals("--xml")){
+				if (x+1>=args.length){
+					System.out.println("no xml example directory defined/n");
+					System.exit(1);
+				}
+				xmlMain=args[x+1];
+				x=x+1;
+			}
+			else if (args[x].equals("--out")){
+				if (x+1>=args.length){
+					System.out.println("no output file defined/n");
+					System.exit(1);
+				}
+				outputFilePath=args[x+1];
+				x=x+1;
+			}			
+			else{
+				// do nothing and go to the next parameter.
+			}
+			x=x+1;
+		}
+		// TODO checking if files/folders exist and are accessible
+		
         // Load a bitmap of all elements
         System.out.println("Loading the XSDs into memory.");
         loadXsd(xsdMain, xsdMainFileName);
@@ -73,7 +148,7 @@ public final class XMLSchemaCoverageChecker {
 
         // Print the results
         System.out.println("Writing the result to disk");
-        printToCsv();
+        printToCsv(outputFilePath);
 
         // Print which files were ignored
         if (print) {
@@ -113,9 +188,16 @@ public final class XMLSchemaCoverageChecker {
                 }
             }
             // For all includes call this method recursively
-            else if (schemaItem instanceof XmlSchemaInclude) {
+            else if (schemaItem instanceof XmlSchemaInclude || schemaItem instanceof XmlSchemaImport) {  //handles import and includess as the same
                 // Get the relative location of the file to be loaded
-                String schemaLocation = ((XmlSchemaInclude) schemaItem).getSchemaLocation();
+				String schemaLocation;
+                if (schemaItem instanceof XmlSchemaInclude){
+					schemaLocation = ((XmlSchemaInclude) schemaItem).getSchemaLocation();
+				}
+				else {
+					schemaLocation = ((XmlSchemaImport) schemaItem).getSchemaLocation();
+				
+				}
 
                 // Differentiate if we have a file in the same or a different folder
                 if (schemaLocation.contains("/")) { // indicates a different folder
@@ -234,7 +316,7 @@ public final class XMLSchemaCoverageChecker {
     /**
      * This code writes the bitmap to disk.
      */
-    private static void printToCsv() throws IOException {
+    private static void printToCsv(String outputFilePath) throws IOException {
         FileWriter csvFileWriter = new FileWriter(outputFilePath);
 
         for (Entry<String, Map<XmlSchemaElement, Set<String>>> entry : elementBitmap.entrySet()) {
