@@ -1,4 +1,13 @@
 # xsd-element-coverage-checker
+## HowTo run
+1. goto XMLSchemaCoverageChecker.java and change the paths there, particularly, the "..."
+2. open command prompt
+3. goto folder "xsd-element-coverage-checker" or whatever you called it
+4. type gradlew.bat build
+5. type gradlew.bat run
+   1. If this does not work check the stacktrace with gradlew.bat run --stacktrace
+
+## More Info
 **Important:** for NeTEx which is the reference use case we had the code runs for 30-40 minutes.
 
 Java code to check how many elements of an XSD-namespace are covered by one or many XML example files
