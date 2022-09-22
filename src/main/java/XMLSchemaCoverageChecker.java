@@ -181,7 +181,7 @@ public final class XMLSchemaCoverageChecker {
                     elementBitmap.put(folderName + fileName, fileBitmap);
                 }
             }
-            // For all includes call this method recursively
+            // For all includes and imports call this method recursively
             else if (schemaItem instanceof XmlSchemaInclude || schemaItem instanceof XmlSchemaImport) {  //handles import and includess as the same
                 // Get the relative location of the file to be loaded
 				String schemaLocation;
@@ -250,6 +250,10 @@ public final class XMLSchemaCoverageChecker {
                     loadXsd(folderName, schemaLocation);
                 }
             }
+			else {
+				// TODO check was in here, so we know, what we have to do with it 
+				System.out.println("ignored element"+ schemaItem);
+			}
         }
     }
 
@@ -339,7 +343,8 @@ public final class XMLSchemaCoverageChecker {
 			}
         }
 		catch (IOException io){
-			System.out.println("problem with outputfile: " + outputFilePath);
+			System.out.println("problem with outputfile: " + outputFilePath + "\n" +io.getMessage());
+			io.printStackTrace(System.out);
 			System.exit(1);				
 		}
     }
