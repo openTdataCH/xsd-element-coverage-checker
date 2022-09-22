@@ -43,14 +43,7 @@ import org.apache.ws.commons.schema.XmlSchemaObject;
  * no element (e.g., only referecnces)); set of files using the element (N/A if the previous one was N/A)
  */
  
- /*
- TODO:
- - Command line parameters
- - Checking if parameters can be used
- - Imports also not only includes
- - Namespaces to be handled
 
- */
 public final class XMLSchemaCoverageChecker {
 
     // Implicit Bitmap for elements parsed out of the various schema, <file, <element, list of usages>>
@@ -85,11 +78,8 @@ public final class XMLSchemaCoverageChecker {
 			if (args[x].equals("--help")){
 				System.out.println("XMLSchemaCoverageChecker\n"); 
 				System.out.println("========================\n"); 
-				System.out.println("Checks, which elements (not abstract) in an XSD are not covered by XML examples\n"); 
+				System.out.println("Checks, which elements (not abstract) in an XSD are not covered by XML examples in a folder\n"); 
 				System.out.println("see also: https://github.com/openTdataCH/xsd-element-coverage-checker\n"); 
-				System.out.println("\n"); 
-				System.out.println("\n"); 
-
 				System.out.println("Parameters:\n"); 
 				System.out.println("--help this help\n"); 
 				System.out.println("--main main xsd file\n"); 
@@ -136,10 +126,10 @@ public final class XMLSchemaCoverageChecker {
 			}
 			x=x+1;
 		}
-		// TODO checking if files/folders exist and are accessible
 		
         // Load a bitmap of all elements
         System.out.println("Loading the XSDs into memory.");
+
         loadXsd(xsdMain, xsdMainFileName);
 
         // Go example by example and check the coverage accross the schema.
@@ -168,8 +158,12 @@ public final class XMLSchemaCoverageChecker {
         // Get the schema
         XmlSchemaCollection schemaCollection = new XmlSchemaCollection();
         schemaCollection.setBaseUri(folderName);
-
-        XmlSchema schema = schemaCollection.read(new StreamSource(new FileInputStream(new File(folderName + fileName))));
+		File tmpFile=new File(folderName + fileName);
+		if (!tmpFile.exists()){
+			System.out.println("Schema-File does not exist: " + folderName + fileName );
+			System.exit(1);
+		}
+        XmlSchema schema = schemaCollection.read(new StreamSource(new FileInputStream(tmpFile)));
 
         // Get all items
         List<XmlSchemaObject> schemaItems = schema.getItems();
@@ -203,8 +197,15 @@ public final class XMLSchemaCoverageChecker {
                 if (schemaLocation.contains("/")) { // indicates a different folder
                     // Resolve the folder path
                     File schemaFile = new File(folderName + schemaLocation);
+					if (!schemaFile.exists()){
+						System.out.println("Schema-File does not exist: " + folderName + schemaLocation );
+						System.exit(1);						
+					}
                     File schemaFolder = new File(schemaFile.getParent());
-
+					if (!schemaFolder.exists()){
+						System.out.println("Schema-Folder does not exist: " + folderName + schemaLocation );
+						System.exit(1);						
+					}
                     // If we've already been there don't go there
                     boolean beenThere = false;
 
@@ -259,7 +260,10 @@ public final class XMLSchemaCoverageChecker {
      */
     private static void checkXml(String folderName) throws IOException, ConfigurationException {
         File xmlFolder = new File(folderName);
-
+		if (!xmlFolder.exists()){
+			System.out.println("xmlFolder does not exist: " + folderName);
+			System.exit(1);						
+		}
         for (File fileOrFolder : xmlFolder.listFiles()) {
             if (fileOrFolder.isFile() && "xml".equals(FilenameUtils.getExtension(fileOrFolder.getCanonicalPath()))) {
                 // If it's a file let's check it
@@ -317,20 +321,26 @@ public final class XMLSchemaCoverageChecker {
      * This code writes the bitmap to disk.
      */
     private static void printToCsv(String outputFilePath) throws IOException {
-        FileWriter csvFileWriter = new FileWriter(outputFilePath);
+		try {
+			FileWriter csvFileWriter = new FileWriter(outputFilePath);
 
-        for (Entry<String, Map<XmlSchemaElement, Set<String>>> entry : elementBitmap.entrySet()) {
-            if (entry.getValue() != null) {
-                for (Entry<XmlSchemaElement, Set<String>> elementEntry : entry.getValue().entrySet()) {
-                    csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append(elementEntry.getKey().getName()).append(File.pathSeparator)
-                        .append(elementEntry.getValue().toString())
-                        .append(System.lineSeparator());
-                }
-            } else {
-                csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append("N/A").append(File.pathSeparator)
-                    .append("N/A")
-                    .append(System.lineSeparator());
-            }
+			for (Entry<String, Map<XmlSchemaElement, Set<String>>> entry : elementBitmap.entrySet()) {
+				if (entry.getValue() != null) {
+					for (Entry<XmlSchemaElement, Set<String>> elementEntry : entry.getValue().entrySet()) {
+						csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append(elementEntry.getKey().getName()).append(File.pathSeparator)
+							.append(elementEntry.getValue().toString())
+							.append(System.lineSeparator());
+					}
+				} else {
+					csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append("N/A").append(File.pathSeparator)
+						.append("N/A")
+						.append(System.lineSeparator());
+				}
+			}
         }
+		catch (IOException io){
+			System.out.println("problem with outputfile: " + outputFilePath);
+			System.exit(1);				
+		}
     }
 }
