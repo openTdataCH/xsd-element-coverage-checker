@@ -21,10 +21,12 @@ import org.apache.commons.configuration2.tree.ImmutableNode;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.ws.commons.schema.XmlSchema;
 import org.apache.ws.commons.schema.XmlSchemaCollection;
+import org.apache.ws.commons.schema.XmlSchemaComplexType;
 import org.apache.ws.commons.schema.XmlSchemaElement;
-import org.apache.ws.commons.schema.XmlSchemaImport;
-import org.apache.ws.commons.schema.XmlSchemaInclude;
+import org.apache.ws.commons.schema.XmlSchemaExternal;
+import org.apache.ws.commons.schema.XmlSchemaGroup;
 import org.apache.ws.commons.schema.XmlSchemaObject;
+import org.apache.ws.commons.schema.XmlSchemaSimpleType;
 
 /**
  * This code allows to check how much of the XSD schema in xsdMain are covered by the example XML files in the xmlMain folder.
@@ -43,8 +45,11 @@ import org.apache.ws.commons.schema.XmlSchemaObject;
  */
 public final class XMLSchemaCoverageChecker {
 
-    // Implicit Bitmap for elements parsed out of the various schema, <file, <element, list of usages>>
-    private static Map<String, Map<XmlSchemaElement, Set<String>>> elementBitmap = new HashMap<>();
+    private static XSDSchemaGraph dependencyGraph = new XSDSchemaGraph();
+
+    // Implicit Bitmaps for objects parsed out of the various schema, <file, <element/simpleType/complexType/group, list of usages>>
+    private static Map<String, Map<XmlSchemaObject, Set<String>>> elementBitmap = new HashMap<>();
+    private static Map<String, Map<XmlSchemaObject, Set<String>>> simpleTypeBitmap = new HashMap<>();
 
     private static List<String> ignoredFiles = new ArrayList<>();
 
@@ -72,7 +77,6 @@ public final class XMLSchemaCoverageChecker {
                 System.out.println("--main main xsd file\n");
                 System.out.println("--xsd Schemafolder\n");
                 System.out.println("--xml XML example folder\n");
-                System.out.println("--circDep to get an output on circular dependencies (needs main and xsd) \n");
                 System.out.println("--out output file (CSV)\n");
                 System.exit(0);
 
@@ -97,9 +101,6 @@ public final class XMLSchemaCoverageChecker {
                 }
                 xmlMain = args[x + 1];
                 x = x + 1;
-            } else if (args[x].equals("--circDep")) {
-                checkCircularDependency = true;
-                x = x + 1;
             } else if (args[x].equals("--out")) {
                 if (x + 1 >= args.length) {
                     System.out.println("no output file defined/n");
@@ -115,20 +116,20 @@ public final class XMLSchemaCoverageChecker {
 
         // Load a bitmap of all elements
         if (!"".equals(xsdMain) && !"".equals(xsdMainFileName)) {
+            if (checkCircularDependency) {
+                System.out.println("Determining circular dependencies");
+                buildImportIncludeDependencyGraph(dependencyGraph, null, null, xsdMain, xsdMainFileName);
+
+                if (print) {
+                    for (XSDSchemaVertex xsdSchemaVertex : dependencyGraph.getVertices().keySet()) {
+                        System.out.println("Vertex: " + xsdSchemaVertex.getName());
+                        System.out.println("Ancestors: " + dependencyGraph.getVertices().get(xsdSchemaVertex));
+                    }
+                }
+            }
+
             System.out.println("Loading the XSDs into memory.");
             loadXsd(xsdMain, xsdMainFileName);
-
-            if (checkCircularDependency) {
-                System.out.println("Checking for circular dependencies");
-                XSDSchemaGraph xsdSchemaGraph = new XSDSchemaGraph();
-                buildImportIncludeDependencyGraph(xsdSchemaGraph, null, null, xsdMain, xsdMainFileName);
-
-                for (XSDSchemaVertex xsdSchemaVertex : xsdSchemaGraph.getVertices().keySet()) {
-                    System.out.println("Vertex: " + xsdSchemaVertex.getName());
-                    System.out.println("Ancestors: " + xsdSchemaGraph.getVertices().get(xsdSchemaVertex));
-                }
-                System.out.println("-----------DONE");
-            }
         }
 
         // Go example by example and check the coverage accross the schema.
@@ -150,104 +151,101 @@ public final class XMLSchemaCoverageChecker {
     }
 
     /**
-     * A recursive method to populate the initial bitmap of elements.
+     * This method builds a dependency graph out of the includes and imports in the XSD schema.
+     * <p>
+     * It also identifies ciruclar dependencies to later allow avoiding to run into infinite loops.
+     *
+     * @param xsdSchemaGraph A graph of dependencies
+     * @param predecessorCanonicalPath On initial call this can be null, but identifies the predecessors of the current file
+     * @param predecessorName On initial call this can be null, but identifies the predecessors of the current file
+     * @param folderName The current XSD folder to use for dependency detection
+     * @param fileName The current "main" XSD file to use for dependency detection
+     * @throws IOException
+     */
+    private static void buildImportIncludeDependencyGraph(XSDSchemaGraph xsdSchemaGraph, String predecessorCanonicalPath, String predecessorName, String folderName, String fileName)
+        throws IOException {
+        File rootFile = openFileOrFolder(folderName, fileName);
+
+        List<XmlSchemaObject> schemaItems = getSchemaItems(rootFile, folderName);
+
+        // If the vertex we tried to add to our graph was already in the graph we have a circular dependency and return without going further.
+        if (!xsdSchemaGraph.addVertex(predecessorCanonicalPath, predecessorName, rootFile.getCanonicalPath(), rootFile.getName())) {
+            return;
+        }
+
+        for (XmlSchemaObject schemaItem : schemaItems) {
+            // For all includes and imports call this method recursively
+            if (schemaItem instanceof XmlSchemaExternal) {  //handles import and includess as the same
+                // Get the relative location of the file to be loaded
+                String schemaLocation = ((XmlSchemaExternal) schemaItem).getSchemaLocation();
+
+                // Differentiate if we have a file in the same or a different folder
+                // A "/" indicates a different folder
+                if (schemaLocation.contains("/")) {
+                    // Resolve the folder path
+                    File schemaFile = openFileOrFolder(folderName, schemaLocation);
+                    File schemaFolder = openFileOrFolder(schemaFile.getParent(), null);
+                    buildImportIncludeDependencyGraph(xsdSchemaGraph, rootFile.getCanonicalPath(), rootFile.getName(), schemaFolder.getCanonicalPath() + File.separator, schemaFile.getName());
+                } else {
+                    buildImportIncludeDependencyGraph(xsdSchemaGraph, rootFile.getCanonicalPath(), rootFile.getName(), folderName, schemaLocation);
+                }
+            }
+        }
+    }
+
+    /**
+     * A recursive method to populate the initial bitmaps with the xsd filenames and empty lists of matches.
      *
      * @param folderName the folder to traverse for the schema
      * @param fileName the file to traverse from
-     * @throws URISyntaxException
-     * @throws FileNotFoundException
+     * @throws IOException
      */
-    private static void loadXsd(String folderName, String fileName) throws URISyntaxException, IOException {
-        // Get the schema
-        XmlSchemaCollection schemaCollection = new XmlSchemaCollection();
-        schemaCollection.setBaseUri(folderName);
-        File tmpFile = new File(folderName + fileName);
-        if (!tmpFile.exists()) {
-            System.out.println("Schema-File does not exist: " + folderName + fileName);
-            System.exit(1);
-        }
-        XmlSchema schema = schemaCollection.read(new StreamSource(new FileInputStream(tmpFile)));
-
+    private static void loadXsd(String folderName, String fileName) throws IOException {
         // Get all items
-        List<XmlSchemaObject> schemaItems = schema.getItems();
+        List<XmlSchemaObject> schemaItems = getSchemaItems(openFileOrFolder(folderName, fileName), folderName);
 
         // Prepare the mapping on this level
-        Map<XmlSchemaElement, Set<String>> fileBitmap = new HashMap<>();
+        Map<XmlSchemaObject, Set<String>> elementBitmapFiles = new HashMap<>();
+        Map<XmlSchemaObject, Set<String>> simpleTypeBitmapFiles = new HashMap<>();
 
         for (XmlSchemaObject schemaItem : schemaItems) {
             // For all xml schema elements, do a recursive element resolvance.
             if (schemaItem instanceof XmlSchemaElement) {
                 // Ensure it's not an abstract element
                 if (!((XmlSchemaElement) schemaItem).isAbstractElement()) {
-                    fileBitmap.put((XmlSchemaElement) schemaItem, new HashSet<String>());
+                    elementBitmapFiles.put(schemaItem, new HashSet<String>());
 
-                    elementBitmap.put(folderName + fileName, fileBitmap);
+                    elementBitmap.put(folderName + fileName, elementBitmapFiles);
                 }
+            } else if (schemaItem instanceof XmlSchemaSimpleType) {
+                simpleTypeBitmapFiles.put(schemaItem, new HashSet<String>());
+
+                simpleTypeBitmap.put(folderName + fileName, simpleTypeBitmapFiles);
+            } else if (schemaItem instanceof XmlSchemaComplexType) {
+
+            } else if (schemaItem instanceof XmlSchemaGroup) {
+
             }
-            // For all includes and imports call this method recursively
-            else if (schemaItem instanceof XmlSchemaInclude || schemaItem instanceof XmlSchemaImport) {  //handles import and includess as the same
+            // For all includes and imports call this method recursively, while avoiding circular dependencies
+            else if (schemaItem instanceof XmlSchemaExternal) {
                 // Get the relative location of the file to be loaded
-                String schemaLocation;
-                if (schemaItem instanceof XmlSchemaInclude) {
-                    schemaLocation = ((XmlSchemaInclude) schemaItem).getSchemaLocation();
+                String schemaLocation = ((XmlSchemaExternal) schemaItem).getSchemaLocation();
+
+                // Get the associated file
+                File schemaFile = openFileOrFolder(folderName, schemaLocation);
+
+                // If we've already been there don't go there again
+                if (checkRecursion(schemaFile)) {
+                    continue;
                 } else {
-                    schemaLocation = ((XmlSchemaImport) schemaItem).getSchemaLocation();
+                    elementBitmap.put(schemaFile.getCanonicalPath(), null);
+                    simpleTypeBitmap.put(schemaFile.getCanonicalPath(), null);
                 }
 
-                // Differentiate if we have a file in the same or a different folder
-                if (schemaLocation.contains("/")) { // indicates a different folder
-                    // Resolve the folder path
-                    File schemaFile = new File(folderName + schemaLocation);
-                    if (!schemaFile.exists()) {
-                        System.out.println("Schema-File does not exist: " + folderName + schemaLocation);
-                        System.exit(1);
-                    }
-                    File schemaFolder = new File(schemaFile.getParent());
-                    if (!schemaFolder.exists()) {
-                        System.out.println("Schema-Folder does not exist: " + folderName + schemaLocation);
-                        System.exit(1);
-                    }
-                    // If we've already been there don't go there
-                    boolean beenThere = false;
-
-                    for (String key : elementBitmap.keySet()) {
-                        if (key.contains(schemaFile.getCanonicalPath())) {
-                            beenThere = true;
-                        }
-                    }
-
-                    if (beenThere) {
-                        continue;
-                    }
-
-                    // Remember the included location so that we don't go there again.
-                    elementBitmap.put(schemaFile.getCanonicalPath(), null);
-
-                    if (print) {
-                        System.out.println("Element bitmap size is now: " + elementBitmap.size() + " added: " + schemaFile.getCanonicalPath());
-                    }
-
-                    loadXsd(schemaFolder.getCanonicalPath() + File.separator, schemaFile.getName());
+                // Differentiate if we have a file in the same or a different folder (indicated by a "/")
+                if (schemaLocation.contains("/")) {
+                    loadXsd(openFileOrFolder(schemaFile.getParent(), null).getCanonicalPath() + File.separator, schemaFile.getName());
                 } else {
-                    // If we've already been there don't go there
-                    boolean beenThere = false;
-
-                    for (String key : elementBitmap.keySet()) {
-                        if (key.contains(folderName + schemaLocation)) {
-                            beenThere = true;
-                        }
-                    }
-
-                    if (beenThere) {
-                        continue;
-                    }
-
-                    elementBitmap.put(folderName + schemaLocation, null);
-
-                    if (print) {
-                        System.out.println("Element bitmap size is now: " + elementBitmap.size() + " added: " + folderName + schemaLocation);
-                    }
-
                     loadXsd(folderName, schemaLocation);
                 }
             } else {
@@ -261,13 +259,12 @@ public final class XMLSchemaCoverageChecker {
      * A recursive method to traverse the examples and to add each example to the bitmap that utilized a specific XML element.
      *
      * @param folderName the folder containing the xml files to check
+     * @throws IOException
+     * @throws ConfigurationException
      */
     private static void checkXml(String folderName) throws IOException, ConfigurationException {
-        File xmlFolder = new File(folderName);
-        if (!xmlFolder.exists()) {
-            System.out.println("xmlFolder does not exist: " + folderName);
-            System.exit(1);
-        }
+        File xmlFolder = openFileOrFolder(folderName, null);
+
         for (File fileOrFolder : xmlFolder.listFiles()) {
             if (fileOrFolder.isFile() && "xml".equals(FilenameUtils.getExtension(fileOrFolder.getCanonicalPath()))) {
                 // If it's a file let's check it
@@ -302,14 +299,22 @@ public final class XMLSchemaCoverageChecker {
     private static void checkElement(File file, ImmutableNode rootNode) throws IOException {
         // Take the current root node and check it
         String elementName = rootNode.getNodeName();
-        boolean foundAMatch = false; // TODO: currently unnused, but when we also cover imports this could allow us to know which examples use elements that do not exist in the schema.
 
-        for (Entry<String, Map<XmlSchemaElement, Set<String>>> entry : elementBitmap.entrySet()) {
+        for (Entry<String, Map<XmlSchemaObject, Set<String>>> entry : elementBitmap.entrySet()) {
             if (entry.getValue() != null) {
-                for (Entry<XmlSchemaElement, Set<String>> elementEntry : entry.getValue().entrySet()) {
-                    if (elementEntry.getKey().getName().contains(elementName)) {
+                for (Entry<XmlSchemaObject, Set<String>> elementEntry : entry.getValue().entrySet()) {
+                    if (((XmlSchemaElement) elementEntry.getKey()).getName().contains(elementName)) {
                         elementEntry.getValue().add(file.getCanonicalPath());
-                        foundAMatch = true;
+                    }
+                }
+            }
+        }
+
+        for (Entry<String, Map<XmlSchemaObject, Set<String>>> entry : simpleTypeBitmap.entrySet()) {
+            if (entry.getValue() != null) {
+                for (Entry<XmlSchemaObject, Set<String>> elementEntry : entry.getValue().entrySet()) {
+                    if (((XmlSchemaSimpleType) elementEntry.getKey()).getName().contains(elementName)) {
+                        elementEntry.getValue().add(file.getCanonicalPath());
                     }
                 }
             }
@@ -322,82 +327,97 @@ public final class XMLSchemaCoverageChecker {
     }
 
     /**
-     * This code writes the bitmap to disk.
+     * This code writes the output to the given path: col1: path, col2: schema type, col3: schema name, col4: references
+     *
+     * @param outputFilePath the path to the output file
+     * @throws IOException
      */
     private static void printBitmapToCsv(String outputFilePath) throws IOException {
-        try {
-            FileWriter csvFileWriter = new FileWriter(outputFilePath);
+        FileWriter csvFileWriter = new FileWriter(outputFilePath);
 
-            for (Entry<String, Map<XmlSchemaElement, Set<String>>> entry : elementBitmap.entrySet()) {
-                if (entry.getValue() != null) {
-                    for (Entry<XmlSchemaElement, Set<String>> elementEntry : entry.getValue().entrySet()) {
-                        csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append(elementEntry.getKey().getName()).append(File.pathSeparator)
-                            .append(elementEntry.getValue().toString())
-                            .append(System.lineSeparator());
-                    }
-                } else {
-                    csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append("N/A").append(File.pathSeparator)
-                        .append("N/A")
+        for (Entry<String, Map<XmlSchemaObject, Set<String>>> entry : elementBitmap.entrySet()) {
+            if (entry.getValue() != null) {
+                for (Entry<XmlSchemaObject, Set<String>> elementEntry : entry.getValue().entrySet()) {
+                    csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append("element").append(File.pathSeparator).append(((XmlSchemaElement) elementEntry.getKey()).getName())
+                        .append(File.pathSeparator)
+                        .append(elementEntry.getValue().toString())
                         .append(System.lineSeparator());
                 }
+            } else {
+                csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append("N/A").append(File.pathSeparator).append("N/A").append(File.pathSeparator)
+                    .append("N/A")
+                    .append(System.lineSeparator());
             }
-        } catch (IOException io) {
-            System.out.println("problem with outputfile: " + outputFilePath + "\n" + io.getMessage());
-            io.printStackTrace(System.out);
-            System.exit(1);
+        }
+
+        for (Entry<String, Map<XmlSchemaObject, Set<String>>> entry : simpleTypeBitmap.entrySet()) {
+            if (entry.getValue() != null) {
+                for (Entry<XmlSchemaObject, Set<String>> elementEntry : entry.getValue().entrySet()) {
+                    csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append("simpleType").append(File.pathSeparator).append(((XmlSchemaSimpleType) elementEntry.getKey()).getName())
+                        .append(File.pathSeparator)
+                        .append(elementEntry.getValue().toString())
+                        .append(System.lineSeparator());
+                }
+            } else {
+                csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append("N/A").append(File.pathSeparator).append("N/A").append(File.pathSeparator)
+                    .append("N/A")
+                    .append(System.lineSeparator());
+            }
         }
     }
 
-    private static void buildImportIncludeDependencyGraph(XSDSchemaGraph xsdSchemaGraph, String predecessorCanonicalPath, String predecessorName, String folderName, String fileName)
-        throws IOException {
-        // Get the schema
+    /**
+     * This auxiliary method returns the list of xml/xsd schema objects in the given xml/xsd file and folder
+     *
+     * @param rootFile the file to open and get the schema data out of
+     * @param folderName the base folder containing the given xsd/xml file
+     * @return (possibly empty) List of XMLSchemaObject
+     * @throws FileNotFoundException
+     */
+    private static List<XmlSchemaObject> getSchemaItems(File rootFile, String folderName) throws FileNotFoundException {
         XmlSchemaCollection schemaCollection = new XmlSchemaCollection();
         schemaCollection.setBaseUri(folderName);
-        File rootFile = new File(folderName + fileName);
-        if (!rootFile.exists()) {
-            System.out.println("Schema-File does not exist: " + folderName + fileName);
-            System.exit(1);
-        }
         XmlSchema schema = schemaCollection.read(new StreamSource(new FileInputStream(rootFile)));
 
         // Get all items
-        List<XmlSchemaObject> schemaItems = schema.getItems();
+        return schema.getItems();
+    }
 
-        // If the vertex we tried to add to our graph was already in the graph we have a circular dependency and return without going further.
-        if (!xsdSchemaGraph.addVertex(predecessorCanonicalPath, predecessorName, rootFile.getCanonicalPath(), rootFile.getName())) {
-            return;
+    /**
+     * Auxiliary method to get the xsd/xml file or a subceding folder for the given folder with the given name.
+     *
+     * @param folderName the base folder containing the given xsd/xml file
+     * @param fileName the file name in the folder pointing to the xsd/xml file
+     * @return the xsd/xml File
+     */
+    private static File openFileOrFolder(String folderName, String fileName) {
+        File file = null;
+
+        if (fileName != null) {
+            file = new File(folderName + fileName);
+        } else {
+            file = new File(folderName);
         }
-
-        for (XmlSchemaObject schemaItem : schemaItems) {
-            // For all includes and imports call this method recursively
-            if (schemaItem instanceof XmlSchemaInclude || schemaItem instanceof XmlSchemaImport) {  //handles import and includess as the same
-                // Get the relative location of the file to be loaded
-                String schemaLocation;
-                if (schemaItem instanceof XmlSchemaInclude) {
-                    schemaLocation = ((XmlSchemaInclude) schemaItem).getSchemaLocation();
-                } else {
-                    schemaLocation = ((XmlSchemaImport) schemaItem).getSchemaLocation();
-                }
-
-                // Differentiate if we have a file in the same or a different folder
-                if (schemaLocation.contains("/")) { // indicates a different folder
-                    // Resolve the folder path
-                    File schemaFile = new File(folderName + schemaLocation);
-                    if (!schemaFile.exists()) {
-                        System.out.println("Schema-File does not exist: " + folderName + schemaLocation);
-                        System.exit(1);
-                    }
-                    File schemaFolder = new File(schemaFile.getParent());
-                    if (!schemaFolder.exists()) {
-                        System.out.println("Schema-Folder does not exist: " + folderName + schemaLocation);
-                        System.exit(1);
-                    }
-
-                    buildImportIncludeDependencyGraph(xsdSchemaGraph, rootFile.getCanonicalPath(), rootFile.getName(), schemaFolder.getCanonicalPath() + File.separator, schemaFile.getName());
-                } else {
-                    buildImportIncludeDependencyGraph(xsdSchemaGraph, rootFile.getCanonicalPath(), rootFile.getName(), folderName, schemaLocation);
-                }
-            }
+        if (!file.exists()) {
+            System.out.println("File/Folder does not exist: " + folderName + fileName);
+            System.exit(1);
         }
+        return file;
+    }
+
+    /**
+     * This auxiliary method checks if the given file is part of anyone of the bitmaps.
+     *
+     * @param schemaFile the file to check
+     * @return true if any bitmap contains the canonical path of the given file
+     * @throws IOException
+     */
+    private static boolean checkRecursion(File schemaFile) throws IOException {
+        Set<String> mergedKeySet = new HashSet<>();
+
+        mergedKeySet.addAll(elementBitmap.keySet());
+        mergedKeySet.addAll(simpleTypeBitmap.keySet());
+
+        return mergedKeySet.contains(schemaFile.getCanonicalPath());
     }
 }
