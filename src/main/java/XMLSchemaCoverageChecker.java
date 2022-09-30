@@ -50,6 +50,7 @@ public final class XMLSchemaCoverageChecker {
     // Implicit Bitmaps for objects parsed out of the various schema, <file, <element/simpleType/complexType/group, list of usages>>
     private static Map<String, Map<XmlSchemaObject, Set<String>>> elementBitmap = new HashMap<>();
     private static Map<String, Map<XmlSchemaObject, Set<String>>> simpleTypeBitmap = new HashMap<>();
+    private static Map<String, Map<XmlSchemaObject, Set<String>>> complexTypeBitmap = new HashMap<>();
 
     private static List<String> ignoredFiles = new ArrayList<>();
 
@@ -207,6 +208,7 @@ public final class XMLSchemaCoverageChecker {
         // Prepare the mapping on this level
         Map<XmlSchemaObject, Set<String>> elementBitmapFiles = new HashMap<>();
         Map<XmlSchemaObject, Set<String>> simpleTypeBitmapFiles = new HashMap<>();
+        Map<XmlSchemaObject, Set<String>> complexTypeBitmapFiles = new HashMap<>();
 
         for (XmlSchemaObject schemaItem : schemaItems) {
             // For all xml schema elements, do a recursive element resolvance.
@@ -222,7 +224,9 @@ public final class XMLSchemaCoverageChecker {
 
                 simpleTypeBitmap.put(folderName + fileName, simpleTypeBitmapFiles);
             } else if (schemaItem instanceof XmlSchemaComplexType) {
+                complexTypeBitmapFiles.put(schemaItem, new HashSet<String>());
 
+                complexTypeBitmap.put(folderName + fileName, complexTypeBitmapFiles);
             } else if (schemaItem instanceof XmlSchemaGroup) {
 
             }
@@ -240,6 +244,7 @@ public final class XMLSchemaCoverageChecker {
                 } else {
                     elementBitmap.put(schemaFile.getCanonicalPath(), null);
                     simpleTypeBitmap.put(schemaFile.getCanonicalPath(), null);
+                    complexTypeBitmap.put(schemaFile.getCanonicalPath(), null);
                 }
 
                 // Differentiate if we have a file in the same or a different folder (indicated by a "/")
@@ -299,11 +304,14 @@ public final class XMLSchemaCoverageChecker {
     private static void checkElement(File file, ImmutableNode rootNode) throws IOException {
         // Take the current root node and check it
         String elementName = rootNode.getNodeName();
+        elementName = elementName.substring(elementName.lastIndexOf(":") + 1);
 
         for (Entry<String, Map<XmlSchemaObject, Set<String>>> entry : elementBitmap.entrySet()) {
             if (entry.getValue() != null) {
                 for (Entry<XmlSchemaObject, Set<String>> elementEntry : entry.getValue().entrySet()) {
-                    if (((XmlSchemaElement) elementEntry.getKey()).getName().contains(elementName)) {
+                    String elementEntryName = ((XmlSchemaElement) elementEntry.getKey()).getName();
+                    elementEntryName = elementEntryName.substring(elementEntryName.lastIndexOf(":") + 1);
+                    if (elementName.equals(elementEntryName)) {
                         elementEntry.getValue().add(file.getCanonicalPath());
                     }
                 }
@@ -313,7 +321,21 @@ public final class XMLSchemaCoverageChecker {
         for (Entry<String, Map<XmlSchemaObject, Set<String>>> entry : simpleTypeBitmap.entrySet()) {
             if (entry.getValue() != null) {
                 for (Entry<XmlSchemaObject, Set<String>> elementEntry : entry.getValue().entrySet()) {
-                    if (((XmlSchemaSimpleType) elementEntry.getKey()).getName().contains(elementName)) {
+                    String elementEntryName = ((XmlSchemaSimpleType) elementEntry.getKey()).getName();
+                    elementEntryName = elementEntryName.substring(elementEntryName.lastIndexOf(":") + 1);
+                    if (elementName.equals(elementEntryName)) {
+                        elementEntry.getValue().add(file.getCanonicalPath());
+                    }
+                }
+            }
+        }
+
+        for (Entry<String, Map<XmlSchemaObject, Set<String>>> entry : complexTypeBitmap.entrySet()) {
+            if (entry.getValue() != null) {
+                for (Entry<XmlSchemaObject, Set<String>> elementEntry : entry.getValue().entrySet()) {
+                    String elementEntryName = ((XmlSchemaComplexType) elementEntry.getKey()).getName();
+                    elementEntryName = elementEntryName.substring(elementEntryName.lastIndexOf(":") + 1);
+                    if (elementName.equals(elementEntryName)) {
                         elementEntry.getValue().add(file.getCanonicalPath());
                     }
                 }
@@ -354,6 +376,21 @@ public final class XMLSchemaCoverageChecker {
             if (entry.getValue() != null) {
                 for (Entry<XmlSchemaObject, Set<String>> elementEntry : entry.getValue().entrySet()) {
                     csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append("simpleType").append(File.pathSeparator).append(((XmlSchemaSimpleType) elementEntry.getKey()).getName())
+                        .append(File.pathSeparator)
+                        .append(elementEntry.getValue().toString())
+                        .append(System.lineSeparator());
+                }
+            } else {
+                csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append("N/A").append(File.pathSeparator).append("N/A").append(File.pathSeparator)
+                    .append("N/A")
+                    .append(System.lineSeparator());
+            }
+        }
+
+        for (Entry<String, Map<XmlSchemaObject, Set<String>>> entry : complexTypeBitmap.entrySet()) {
+            if (entry.getValue() != null) {
+                for (Entry<XmlSchemaObject, Set<String>> elementEntry : entry.getValue().entrySet()) {
+                    csvFileWriter.append(entry.getKey()).append(File.pathSeparator).append("complexType").append(File.pathSeparator).append(((XmlSchemaComplexType) elementEntry.getKey()).getName())
                         .append(File.pathSeparator)
                         .append(elementEntry.getValue().toString())
                         .append(System.lineSeparator());
@@ -417,6 +454,7 @@ public final class XMLSchemaCoverageChecker {
 
         mergedKeySet.addAll(elementBitmap.keySet());
         mergedKeySet.addAll(simpleTypeBitmap.keySet());
+        mergedKeySet.addAll(complexTypeBitmap.keySet());
 
         return mergedKeySet.contains(schemaFile.getCanonicalPath());
     }
