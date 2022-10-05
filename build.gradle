@@ -1,13 +1,14 @@
 plugins {
     id "application"
 }
-apply plugin : "java" 
+apply plugin: "java"
 ext {
-   javaMainClass = "XMLSchemaCoverageChecker"
+    javaMainClass = "XMLSchemaCoverageChecker"
 }
 
 application {
     mainClassName = javaMainClass
+    applicationDefaultJvmArgs = ["-Xms2048m", "-Xmx4096m"]
 }
 
 group 'ch.sbb.skiplus'

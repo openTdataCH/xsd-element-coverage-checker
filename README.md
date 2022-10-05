@@ -21,6 +21,7 @@ The program can check, if the elements defined in an Schema is covered by exampl
 * Java code to check how many elements of an XSD-namespace are covered by one or many XML example files
 * We focus on XML elements for now, no complex types, groups, etc 
 * We ignore elements with abstract="true"
+* You may run out of memory, make sure to allocate enough
 
 
 ## How the program works
