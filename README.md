@@ -57,6 +57,11 @@ How it works:
   decide what part of the output is relevant. For example OJP.xsd includes siri schemata which are
   then replaced with substitutionGroups, thus, it is likely that siri schemata can be neglected in
   the coverage analysis. However, we do not assume this pre-hoc but provide you with both outputs.
+* The recursion depth, i.e., how far we resolve group references is defined by the
+  substitutionRounds parameter in the XMLSchemaBitmapBuilder file. For example for OJP this needs to
+  be 3. We did not resolve infinitely as that may not be wanted for a given analysis, but if you
+  wish you can be certain it is infinite if you set INT_MAX. Note, the more recursions you have the
+  higher is the memory consumption.
 
 ## Issues
 
