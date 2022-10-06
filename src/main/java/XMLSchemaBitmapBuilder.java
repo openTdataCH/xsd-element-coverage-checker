@@ -1,6 +1,7 @@
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -36,7 +37,10 @@ public final class XMLSchemaBitmapBuilder {
     private static String groupRef = "groupRef";
     private static String delimiter = "/";
 
-    private static String hotSwapFile = "hotSwap.csv";
+    private static int substitutionRounds = 3;
+    private static Map<String, Set<String>> substitutionGroups = new HashMap<>();
+
+    private static Set<String> ignoredNamespaces = new HashSet<>(Arrays.asList("http://www.w3.org/XML/1998/namespace"));
 
     private XMLSchemaBitmapBuilder() {
     }
@@ -50,58 +54,148 @@ public final class XMLSchemaBitmapBuilder {
 
         // FIXME this is a workaround to handle the deficiency of the XMLSchema library who can identify a group ref but not resolve the group
         // In a second round we resolve the referenced groups to their actual instances
-        resolveGroupRefs(bitmap, bitmapDeepCopy);
-
-        return bitmapDeepCopy;
+        return resolveGroupRefs(bitmap, bitmapDeepCopy, folderName + fileName);
     }
 
-    public static void resolveGroupRefs(Map<String, Map<String, Set<String>>> bitmap, Map<String, Map<String, Set<String>>> bitmapDeepCopy) {
+    /**
+     * This method has two purposes: 1) It resolves all "/groupRef/" instances to the actual group and its sub-elements, i.e., it replaces those elements in the bitmap deep copy 2) It removes the
+     * group names, which were only left in the paths to allow the substitution step in 1). 3) after step 1) is repeated -substitutionRounds- number of times we handle substitutionGroups 4) when the
+     * substitutiongroups have been handled we truncate if wanted (TODO: DISCUSS remove all remaining paths containing a groupRef?)
+     *
+     * @param bitmap the original bitmap for which we substitute the group refs
+     * @param bitmapDeepCopy a deep copy of the bitmap within which we do the de-facto substitutions
+     * @param rootFile the root xsd file if not null we consider this a truncate wish and throw out all other mappings
+     * @return the substituted bitmap
+     */
+    public static Map<String, Map<String, Set<String>>> resolveGroupRefs(Map<String, Map<String, Set<String>>> bitmap, Map<String, Map<String, Set<String>>> bitmapDeepCopy, String rootFile) {
+        int progress = 0;
+        for (int i = substitutionRounds; i > 0; i--) {
+            progress = 0;
+            for (String filePath : bitmap.keySet()) {
+                System.out.println(
+                    "Substituting groupRefs, round " + (substitutionRounds + 1 - i) + " progress: " + Math.round(100f * (float) ((float) (++progress) / (float) bitmap.keySet().size())));
+                if (bitmap.get(filePath) != null) {
+                    for (String xsdPath : bitmap.get(filePath).keySet()) {
+                        String[] pathSegments = xsdPath.split(groupRef);
+
+                        // If the path has no group ref we don't need to do anything
+                        if (pathSegments.length > 1) {
+                            // If the ref is at the root level we remove it.
+                            if (delimiter.equals(pathSegments[0])) {
+                                bitmapDeepCopy.get(filePath).remove(xsdPath);
+                                continue;
+                            }
+                            // We do not care for wrappers who do not rename their reference!
+                            if (pathSegments[0].replaceAll(delimiter, "").equals(pathSegments[1].replaceAll(delimiter, ""))) {
+                                System.out.println("resolveGroupRefs" + " ignoring wrappers who do not rename their reference: " + xsdPath);
+                                bitmapDeepCopy.get(filePath).remove(xsdPath);
+                                addPathToBitmap(filePath, pathSegments[0], bitmapDeepCopy);
+                                continue;
+                            }
+                            if (pathSegments.length > 2) {
+                                System.out.println("resolveGroupRefs" + " more than 2 path segments: " + pathSegments);
+                            }
+
+                            // We then search through the bitmap deep copy for the given segment.
+                            // The paths matching the given one are then stored into a list, because we need to replace them
+                            // we also remove the group name from the paths.
+                            List<String> groupPaths = gatherGroupPaths(bitmap, pathSegments[1], true);
+
+                            // We now replace the given path with those gathered from the reference.
+                            // For that we remove the given/old path and then add the new/resolved ones.
+                            bitmapDeepCopy.get(filePath).remove(xsdPath);
+                            for (String groupPath : groupPaths) {
+                                addPathToBitmap(filePath, pathSegments[0] + groupPath.replaceFirst(delimiter, ""), bitmapDeepCopy);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Swap the bitmap with the deep copy for the next round
+            bitmap = bitmapDeepCopy;
+            bitmapDeepCopy = XMLSchemaUtils.createBitmapDeepCopy(bitmap);
+        }
+
+        // Handle the substitutionGroups, but first update the bitmap
+        bitmap = bitmapDeepCopy;
+        bitmapDeepCopy = XMLSchemaUtils.createBitmapDeepCopy(bitmap);
+        progress = 0;
         for (String filePath : bitmap.keySet()) {
+            System.out.println("Resolving substitutionGroups, progress: " + (100f * (float) ((float) (++progress) / (float) bitmap.keySet().size())));
             if (bitmap.get(filePath) != null) {
                 for (String xsdPath : bitmap.get(filePath).keySet()) {
-                    String[] pathSegments = xsdPath.split(groupRef);
-
-                    // If the path has no group ref we don't need to do anything
-                    if (pathSegments.length > 1) {
-                        // We do not care for wrappers who do not rename their reference!
-                        if (pathSegments[0].replaceAll(delimiter, "").equals(pathSegments[1].replaceAll(delimiter, ""))) {
-                            System.out.println("resolveGroupRefs" + " skipping: " + xsdPath);
-                            continue;
+                    // Check if the given path contains any of the groups to substitute
+                    for (String substitutionGroup : substitutionGroups.keySet()) {
+                        if (!xsdPath.endsWith(delimiter)) {
+                            xsdPath += delimiter;
                         }
-                        if (pathSegments.length > 2) {
-                            System.out.println("resolveGroupRefs" + " more than 2 path segments: " + pathSegments);
-                        }
+                        String[] pathSegments = xsdPath.split(substitutionGroup);
 
-                        // We then search through the bitmap deep copy for the given segments (starting with index 1).
-                        // The paths matching the given one are then stored into a list, because we need to replace them
-                        List<String> groupPaths = new ArrayList<>();
+                        // If we could split there was a containment, but we only want to replace the group as a "root"
+                        // For example we replace /OJP/OJPResponse/AbstractDiscoveryDelivery but not /OJP/OJPResponse/AbstractDiscoveryDelivery/ErrorCondition
+                        if (pathSegments.length > 1 && pathSegments[1].replaceAll(delimiter, "").isBlank()) {
+                            // Then go through the substitutions for the given group
+                            for (String substitution : substitutionGroups.get(substitutionGroup)) {
+                                // Gather all paths of the substitution
+                                // we do not remove the substitution from the paths
+                                List<String> groupPaths = gatherGroupPaths(bitmap, delimiter + substitution, false);
 
-                        for (String filePathDC : bitmapDeepCopy.keySet()) {
-                            if (bitmapDeepCopy.get(filePathDC) != null) {
-                                for (String xsdPathDV : bitmapDeepCopy.get(filePathDC).keySet()) {
-                                    // Avoid other groupRefs
-                                    if (xsdPathDV.contains(groupRef)) {
-                                        continue;
-                                    } else if (XMLSchemaUtils.fullSubpath(xsdPathDV, pathSegments[1], delimiter)) {
-                                        groupPaths.add(xsdPathDV);
-                                    }
+                                // Then we expand the deep copy mapping
+                                for (String groupPath : groupPaths) {
+                                    addPathToBitmap(filePath, pathSegments[0] + groupPath.replaceFirst(delimiter, ""), bitmapDeepCopy);
                                 }
                             }
                         }
-
-                        // We now replace the given path with those gathered from the reference.
-                        // For that we remove the given/old path and then add the new/resolved ones.
-                        bitmapDeepCopy.get(filePath).remove(xsdPath);
-                        for (String groupPath : groupPaths) {
-                            addPathToBitmap(filePath, pathSegments[0] + groupPath.replaceFirst(delimiter, ""), bitmapDeepCopy);
-                        }
-                        System.out.println(
-                            "Memory: max: " + (Runtime.getRuntime().maxMemory() / 1048576) + " free " + (Runtime.getRuntime().freeMemory() / 1048576) + " total " + (Runtime.getRuntime().totalMemory()
-                                / 1048576));
                     }
                 }
             }
         }
+
+        // if root file exists truncate the bitmap
+        if (rootFile != null) {
+            Map<String, Map<String, Set<String>>> finalMap = new HashMap<>();
+            finalMap.put(rootFile, bitmapDeepCopy.get(rootFile));
+            return finalMap;
+        }
+
+        return bitmapDeepCopy;
+    }
+
+    /**
+     * This auxiliary method allows gathering the xsdPaths containing the given subPath and if wanted to replace the subPath in the returned list of paths.
+     *
+     * @param bitmap the bitmap to get the list of XSD paths from
+     * @param subPath the subPath to find in the bitmap
+     * @param removeSubPath whether the result should containt the subpath itself.
+     * @return list of paths in the bitmap containing the subpath (with or without the subpath itself)
+     */
+    private static List<String> gatherGroupPaths(Map<String, Map<String, Set<String>>> bitmap, String subPath, boolean removeSubPath) {
+        List<String> groupPaths = new ArrayList<>();
+
+        for (String filePathSubstitute : bitmap.keySet()) {
+            if (bitmap.get(filePathSubstitute) != null) {
+                for (String xsdPathSubstitute : bitmap.get(filePathSubstitute).keySet()) {
+                    if (XMLSchemaUtils.fullSubpath(xsdPathSubstitute, subPath, delimiter)) {
+                        // only include those group substitutes that also start with the group name
+                        if (!xsdPathSubstitute.startsWith(subPath)) {
+                            continue;
+                        }
+
+                        // remove the actual group name when adding substitutes
+                        if (removeSubPath) {
+                            xsdPathSubstitute = xsdPathSubstitute.replace(subPath, "");
+                        }
+
+                        if (!xsdPathSubstitute.isBlank()) {
+                            groupPaths.add(xsdPathSubstitute);
+                        }
+                    }
+                }
+            }
+        }
+
+        return groupPaths;
     }
 
     private static void loadXsdStringBase(String folderName, String fileName, Map<String, Map<String, Set<String>>> bitmap) throws IOException {
@@ -179,6 +273,15 @@ public final class XMLSchemaBitmapBuilder {
             pathSoFar += delimiter + schemaElement.getName();
 
             addPathToBitmap(filePath, pathSoFar, bitmap);
+
+            // Check if we have a substitutiton group and store it in our map
+            if (schemaElement.getSubstitutionGroup() != null) {
+                if (substitutionGroups.get(schemaElement.getSubstitutionGroup().getLocalPart()) == null) {
+                    substitutionGroups.put(schemaElement.getSubstitutionGroup().getLocalPart(), new HashSet<>());
+                }
+
+                substitutionGroups.get(schemaElement.getSubstitutionGroup().getLocalPart()).add(schemaElement.getName());
+            }
         }
 
         // If the element contains a ref - follow it
@@ -324,9 +427,12 @@ public final class XMLSchemaBitmapBuilder {
     private static void handleAttribute(String filePath, String pathSoFar, XmlSchemaAttribute schemaAttribute, Map<String, Map<String, Set<String>>> bitmap) {
         // If we have a name (we do not have ref and may have type).
         if (schemaAttribute.getName() != null) {
-            pathSoFar += delimiter + schemaAttribute.getName();
+            // FIXME we knowingly ignore all native types
+            if (!ignoredNamespaces.contains(schemaAttribute.getQName().getNamespaceURI())) {
+                pathSoFar += delimiter + schemaAttribute.getName();
 
-            addPathToBitmap(filePath, pathSoFar, bitmap);
+                addPathToBitmap(filePath, pathSoFar, bitmap);
+            }
         }
 
         // If the attributes contains a ref - follow it
@@ -393,7 +499,7 @@ public final class XMLSchemaBitmapBuilder {
      */
     private static void handleExtension(String filePath, String pathSoFar, XmlSchemaContent schemaContent, Map<String, Map<String, Set<String>>> bitmap) {
         /*
-        // FIXME not needed atm
+        // FIXME if needed
         String extensionBaseName = "";
         if (schemaContent instanceof XmlSchemaSimpleContentExtension) {
             extensionBaseName = ((XmlSchemaSimpleContentExtension) schemaContent).getBaseTypeName().getLocalPart();

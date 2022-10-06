@@ -36,9 +36,6 @@ import org.apache.commons.io.FilenameUtils;
  * How it works: 1. we create a large bitmap (elementBitmap): xsdFilePath -> (XSD Element to check ->  Set of XML files having XML-objects matching the XSD-objects) 2. we iterate through all XML files
  * and compare each element within against the xsd-objects and if they match add the file's path to the set 3. we print it all into a xsd file with columns: xsd file; xsd element (N/A if the xsd had
  * no element (e.g., only references)); set of files using the element (N/A if the previous one was N/A)
- * <p>
- * Important: For the validation we do a substring check. For example, if an example-file contains the element OJPTripRequest and OJPTripRequest is part of different XSD-path levels it would match all
- * of them.
  */
 public final class XMLSchemaCoverageChecker {
 
@@ -197,11 +194,7 @@ public final class XMLSchemaCoverageChecker {
             if (filePathToStructure.getValue() != null) {
                 for (Entry<String, Set<String>> structurePathToOccurence : filePathToStructure.getValue().entrySet()) {
                     String structurePath = structurePathToOccurence.getKey().substring(structurePathToOccurence.getKey().lastIndexOf(":") + 1);
-                    // FIXME 1) man muss hier eine lösung finden, dass es ein contains ist, aber fully contains
-                    // FIXME 2) man muss sich generell überlegen, dass derzeit die suchtiefe nicht allzu gross ist
-                    // FIXME dabei geht es nicht darum, dass man die validität der struktur sicherstellt, sonden dass gewisse Konstellationen, bspw. mit group refs nicht auf Abdeckung geprüft werden können.
-                    // FIXME 3) für 2) ggf. könnte man sich überlegen, ob man 2 Iterationen über die XSD macht, s.d. man die Referenzen auflösen kann?
-                    if (structurePath.contains(rootNodePath)) {
+                    if (XMLSchemaUtils.fullSubpath(rootNodePath, structurePath, "/")) {
                         structurePathToOccurence.getValue().add(file.getCanonicalPath());
                     }
                 }
