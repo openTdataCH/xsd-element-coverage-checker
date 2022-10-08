@@ -107,7 +107,7 @@ public final class XMLSchemaUtils {
      */
     public static File printBitmapToCsv(String outputFilePath, Map<String, Map<String, Set<String>>> bitmap) throws IOException {
         FileWriter csvFileWriter = new FileWriter(outputFilePath);
-
+		csvFileWriter.append("File;Type;Pseudo_path;;Covering_examples\n");
         for (Entry<String, Map<String, Set<String>>> entry : bitmap.entrySet()) {
             if (entry.getValue() != null) {
                 for (Entry<String, Set<String>> elementEntry : entry.getValue().entrySet()) {

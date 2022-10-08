@@ -45,8 +45,11 @@ public final class XMLSchemaCoverageChecker {
     private static Map<String, Map<String, Set<String>>> allPathsBitmap = new HashMap<>();
 
     private static List<String> ignoredFiles = new ArrayList<>();
+	
+	public static boolean verbose=false;
 
-    private static boolean print = false;
+
+    //private static boolean print = false;
 
     private XMLSchemaCoverageChecker() {
     }
@@ -60,7 +63,10 @@ public final class XMLSchemaCoverageChecker {
         String outputFilePath = "";
         boolean checkCircularDependency = false;
         while (x < args.length) {
-            if (args[x].equals("--help")) {
+			if (args[x].equals("--verbose")){
+				verbose=true;
+				x=x+1;
+			} else if (args[x].equals("--help")) {
                 System.out.println("XMLSchemaCoverageChecker\n");
                 System.out.println("========================\n");
                 System.out.println("Checks, which elements (not abstract) in an XSD are not covered by XML examples in a folder\n");
@@ -71,6 +77,7 @@ public final class XMLSchemaCoverageChecker {
                 System.out.println("--xsd Schemafolder\n");
                 System.out.println("--xml XML example folder\n");
                 System.out.println("--out output file (CSV)\n");
+				System.out.println("--verbose writes more output to standard output during processing\n");
                 System.exit(0);
 
             } else if (args[x].equals("--main")) {
@@ -113,7 +120,7 @@ public final class XMLSchemaCoverageChecker {
                 System.out.println("Determining circular dependencies");
                 XMLSchemaDependencyChecker.buildImportIncludeDependencyGraph(dependencyGraph, null, null, xsdMain, xsdMainFileName);
 
-                if (print) {
+                if (verbose) {
                     for (XSDSchemaVertex xsdSchemaVertex : dependencyGraph.getVertices().keySet()) {
                         System.out.println("Vertex: " + xsdSchemaVertex.getName());
                         System.out.println("Ancestors: " + dependencyGraph.getVertices().get(xsdSchemaVertex));
@@ -138,7 +145,7 @@ public final class XMLSchemaCoverageChecker {
         }
 
         // Print which files were ignored
-        if (print) {
+        if (verbose) {
             System.out.println("Ignored the following files: " + Arrays.toString(ignoredFiles.toArray()));
         }
     }
@@ -156,7 +163,7 @@ public final class XMLSchemaCoverageChecker {
         for (File fileOrFolder : xmlFolder.listFiles()) {
             if (fileOrFolder.isFile() && "xml".equals(FilenameUtils.getExtension(fileOrFolder.getCanonicalPath()))) {
                 // If it's a file let's check it
-                if (print) {
+                if (verbose) {
                     System.out.println("Checking file: " + fileOrFolder.getCanonicalPath());
                 }
 

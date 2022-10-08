@@ -14,9 +14,8 @@ We cover almost all XSD-constellations. Here's an image of the XSD hierarchy cov
 
 1. open command prompt
 2. goto folder "xsd-element-coverage-checker" or whatever you called it
-3. type gradlew.bat build
-4. type gradlew run --args="--main ojp.xsd --xsd D:\development\OJP-changes_for_v1.1\ --xml D:
-   \development\OJP-changes_for_v1.1\examples\ --out ./ojp.csv  (change the perameters)
+3. gradlew.bat build
+4. gradlew run --args="--main ojp.xsd --xsd D:\development\OJP-changes_for_v1.1\ --xml D:\development\OJP-changes_for_v1.1\examples\ --out ./ojp.csv  (change the perameters)
 
 ## Parameters
 
@@ -25,6 +24,7 @@ We cover almost all XSD-constellations. Here's an image of the XSD hierarchy cov
 * --xsd Schemafolder
 * --xml XML example folder
 * --out output file (CSV)
+* -v to activate verbose mode
 
 ## How the program works
 
