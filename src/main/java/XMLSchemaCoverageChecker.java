@@ -26,7 +26,6 @@ import org.apache.commons.io.FilenameUtils;
  * <p>
  * what we do not include:
  * <li>
- * <i>We ignore abstract="true" elements.</i>
  * <i>We cannot follow the "base" attribute references of XSD extensions, i.e., the simple or complexTypes they point to. We do however consider the effective extensions, i.e., groups, sequences,
  * attributes defined within. BUT at the moment only the attribute content existed and is considered. We do follow refs to attributegroups.</i>
  * <i>we list XSD-any but do not match it with the XML</i>
@@ -69,7 +68,7 @@ public final class XMLSchemaCoverageChecker {
 			} else if (args[x].equals("--help")) {
                 System.out.println("XMLSchemaCoverageChecker\n");
                 System.out.println("========================\n");
-                System.out.println("Checks, which elements (not abstract) in an XSD are not covered by XML examples in a folder\n");
+                System.out.println("Checks, which objects in an XSD are not covered by XML examples in a folder\n");
                 System.out.println("see also: https://github.com/openTdataCH/xsd-element-coverage-checker\n");
                 System.out.println("Parameters:\n");
                 System.out.println("--help this help\n");

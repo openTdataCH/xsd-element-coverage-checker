@@ -72,8 +72,8 @@ public final class XMLSchemaBitmapBuilder {
         for (int i = substitutionRounds; i > 0; i--) {
             progress = 0;
             for (String filePath : bitmap.keySet()) {
-                System.out.println(
-                    "Substituting groupRefs, round " + (substitutionRounds + 1 - i) + " progress: " + Math.round(100f * (float) ((float) (++progress) / (float) bitmap.keySet().size())));
+                System.out.print(
+                    "Substituting groupRefs, round " + (substitutionRounds + 1 - i) + " progress: " + Math.round(100f * (float) ((float) (++progress) / (float) bitmap.keySet().size())) + "% \r");
                 if (bitmap.get(filePath) != null) {
                     for (String xsdPath : bitmap.get(filePath).keySet()) {
                         String[] pathSegments = xsdPath.split(groupRef);
@@ -122,7 +122,7 @@ public final class XMLSchemaBitmapBuilder {
         bitmapDeepCopy = XMLSchemaUtils.createBitmapDeepCopy(bitmap);
         progress = 0;
         for (String filePath : bitmap.keySet()) {
-            System.out.println("Resolving substitutionGroups, progress: " + (100f * (float) ((float) (++progress) / (float) bitmap.keySet().size())));
+            System.out.print("Resolving substitutionGroups, progress: " + Math.round((100f * (float) ((float) (++progress) / (float) bitmap.keySet().size()))) + "% \r");
             if (bitmap.get(filePath) != null) {
                 for (String xsdPath : bitmap.get(filePath).keySet()) {
                     // Check if the given path contains any of the groups to substitute
@@ -206,10 +206,7 @@ public final class XMLSchemaBitmapBuilder {
         for (XmlSchemaObject schemaItem : schemaItems) {
             // Handle elements
             if (schemaItem instanceof XmlSchemaElement) {
-                // Ensure it's not an abstract element
-                if (!((XmlSchemaElement) schemaItem).isAbstractElement()) {
-                    handleElement(folderName + fileName, "", (XmlSchemaElement) schemaItem, bitmap);
-                }
+                handleElement(folderName + fileName, "", (XmlSchemaElement) schemaItem, bitmap);
             }
             // Handle simpleType
             else if (schemaItem instanceof XmlSchemaSimpleType) {

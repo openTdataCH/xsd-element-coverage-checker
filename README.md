@@ -41,7 +41,6 @@ How it works:
 ## Notes
 
 * The runtime may be significent. Around 4 minutes for OJP.
-* We ignore elements with abstract="true"
 * You may run out of memory, make sure to allocate enough using -Xmx javac command
 * We cannot follow the "base" attribute references of XSD extensions, i.e., the simple or
   complexTypes they point to. We do however consider the effective extensions, i.e., groups,
